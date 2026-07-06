@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from typing import List
 
 from ..core import Environment, StepResult, Task
@@ -14,6 +15,8 @@ _CATALOG = [
     {"id": "p5", "name": "scented candle", "category": "gift", "price": 12.0, "rating": 4.4},
     {"id": "p6", "name": "leather notebook", "category": "gift", "price": 29.0, "rating": 4.9},
     {"id": "p7", "name": "wireless mouse", "category": "accessory", "price": 25.0, "rating": 4.2},
+    {"id": "p8", "name": "usb-c hub", "category": "accessory", "price": 45.0, "rating": 4.5},
+    {"id": "p9", "name": "desk lamp", "category": "accessory", "price": 32.0, "rating": 4.1},
 ]
 
 
@@ -23,13 +26,40 @@ class ShopEnv(Environment):
 
     def tasks(self) -> List[Task]:
         return [
-            Task("shop.laptop",
-                 "Buy exactly one laptop that costs under $800 and has a rating "
-                 "of at least 4.5, then checkout."),
-            Task("shop.gifts",
-                 "Buy exactly two different gift items with a combined price "
-                 "under $50, then checkout."),
+            self._task("shop.laptop", "laptop", 1, 800.0, 4.5),
+            self._task("shop.gifts", "gift", 2, 50.0, 0.0),
         ]
+
+    def generate(self, rng: random.Random) -> Task:
+        category = rng.choice(["laptop", "gift", "accessory"])
+        pool = [p for p in _CATALOG if p["category"] == category]
+        count = rng.randint(1, min(2, len(pool)))
+        targets = rng.sample(pool, count)
+        min_rating = min(p["rating"] for p in targets)
+        max_total = round(sum(p["price"] for p in targets) + rng.choice([5, 15, 30]))
+        return self._task(f"shop.gen{rng.randrange(10**6)}",
+                          category, count, float(max_total), min_rating)
+
+    def solve(self, task: Task) -> List[str]:
+        s = task.spec
+        qualifying = sorted(
+            (p for p in _CATALOG
+             if p["category"] == s["category"] and p["rating"] >= s["min_rating"]),
+            key=lambda p: p["price"])
+        picks = qualifying[:s["count"]]  # cheapest qualifying set fits any budget
+        return ([f"search {s['category']}"]
+                + [f"add {p['id']}" for p in picks] + ["checkout"])
+
+    def _task(self, tid: str, category: str, count: int,
+              max_total: float, min_rating: float) -> Task:
+        rating_clause = (f", each with a rating of at least {min_rating}"
+                         if min_rating > 0 else "")
+        plural = "different items" if count > 1 else "item"
+        instruction = (f"Buy exactly {count} {category} {plural}{rating_clause}, "
+                       f"with a combined price under ${max_total:.0f}, then checkout.")
+        return Task(tid, instruction, spec={"category": category, "count": count,
+                                            "max_total": max_total,
+                                            "min_rating": min_rating})
 
     def actions_help(self) -> str:
         return "search <query> | view <id> | add <id> | remove <id> | cart | checkout"
@@ -83,13 +113,10 @@ class ShopEnv(Environment):
         return next((p for p in _CATALOG if p["id"] == pid), None)
 
     def _score(self) -> float:
+        s = self.task.spec
         items = [self._find(i) for i in self.cart]
-        if self.task.id == "shop.laptop":
-            return 1.0 if (len(items) == 1 and items[0]["category"] == "laptop"
-                           and items[0]["price"] < 800 and items[0]["rating"] >= 4.5) else 0.0
-        if self.task.id == "shop.gifts":
-            gifts = [p for p in items if p["category"] == "gift"]
-            ok = (len(items) == 2 and len(gifts) == 2
-                  and sum(p["price"] for p in gifts) < 50)
-            return 1.0 if ok else 0.0
-        return 0.0
+        ok = (len(items) == s["count"]
+              and all(p["category"] == s["category"] for p in items)
+              and sum(p["price"] for p in items) < s["max_total"]
+              and all(p["rating"] >= s["min_rating"] for p in items))
+        return 1.0 if ok else 0.0

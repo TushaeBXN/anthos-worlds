@@ -2,19 +2,32 @@
 
 from __future__ import annotations
 
+import random
 from typing import Dict, List
 
 from ..core import Environment, StepResult, Task
 
 _ROOMS: Dict[str, Dict] = {
     "hall": {"exits": {"down": "cellar", "up": "attic"},
-             "detail": "A dusty hall. Stairs lead up and down.", "items": []},
+             "detail": "A dusty hall. Stairs lead up and down."},
     "cellar": {"exits": {"up": "hall"},
-               "detail": "A damp cellar. Something glints on the floor.",
-               "items": ["key", "rope"]},
+               "detail": "A damp cellar. Something might be hidden here."},
     "attic": {"exits": {"down": "hall"},
-              "detail": "A cramped attic holding a locked chest.", "items": []},
+              "detail": "A cramped attic holding a locked chest."},
 }
+
+# shortest routes between rooms (the house is tiny; hall is the hub)
+_PATHS = {
+    ("hall", "cellar"): ["go down"], ("cellar", "hall"): ["go up"],
+    ("hall", "attic"): ["go up"], ("attic", "hall"): ["go down"],
+    ("cellar", "attic"): ["go up", "go up"], ("attic", "cellar"): ["go down", "go down"],
+}
+
+_FETCH_ITEMS = ["rope", "lantern", "coin", "map"]
+
+
+def _path(a: str, b: str) -> List[str]:
+    return [] if a == b else _PATHS[(a, b)]
 
 
 class QuestEnv(Environment):
@@ -23,20 +36,46 @@ class QuestEnv(Environment):
 
     def tasks(self) -> List[Task]:
         return [
-            Task("quest.chest",
-                 "Find the key hidden somewhere in the house and use it to open "
-                 "the chest in the attic."),
-            Task("quest.rope",
-                 "Retrieve the rope from wherever it is and bring it back to the "
-                 "hall, then say done.", max_steps=15),
+            self._chest_task("quest.chest", "cellar"),
+            self._fetch_task("quest.rope", "rope", "cellar"),
         ]
+
+    def generate(self, rng: random.Random) -> Task:
+        tid = f"quest.gen{rng.randrange(10**6)}"
+        if rng.random() < 0.5:
+            return self._chest_task(tid, rng.choice(["cellar", "hall"]))
+        return self._fetch_task(tid, rng.choice(_FETCH_ITEMS),
+                                rng.choice(["cellar", "attic"]))
+
+    def solve(self, task: Task) -> List[str]:
+        s = task.spec
+        if s["kind"] == "chest":
+            return (_path("hall", s["key_room"]) + ["take key"]
+                    + _path(s["key_room"], "attic") + ["use key"])
+        return (_path("hall", s["room"]) + [f"take {s['item']}"]
+                + _path(s["room"], "hall") + ["done"])
+
+    def _chest_task(self, tid: str, key_room: str) -> Task:
+        return Task(tid, "Find the key hidden somewhere in the house and use it "
+                         "to open the chest in the attic.",
+                    spec={"kind": "chest", "key_room": key_room})
+
+    def _fetch_task(self, tid: str, item: str, room: str) -> Task:
+        return Task(tid, f"Retrieve the {item} from wherever it is and bring it "
+                         f"back to the hall, then say done.", max_steps=15,
+                    spec={"kind": "fetch", "item": item, "room": room})
 
     def actions_help(self) -> str:
         return "look | go <direction> | take <item> | use <item> | inventory | done"
 
     def reset(self, task: Task) -> str:
         self.task = task
-        self.rooms = {k: {**v, "items": list(v["items"])} for k, v in _ROOMS.items()}
+        self.rooms = {k: {**v, "items": []} for k, v in _ROOMS.items()}
+        s = task.spec
+        if s["kind"] == "chest":
+            self.rooms[s["key_room"]]["items"].append("key")
+        else:
+            self.rooms[s["room"]]["items"].append(s["item"])
         self.at = "hall"
         self.bag: List[str] = []
         self.chest_open = False
@@ -77,8 +116,7 @@ class QuestEnv(Environment):
         return StepResult(f"unknown command: {action!r}. Commands: {self.actions_help()}")
 
     def _score(self) -> float:
-        if self.task.id == "quest.chest":
+        s = self.task.spec
+        if s["kind"] == "chest":
             return 1.0 if self.chest_open else 0.0
-        if self.task.id == "quest.rope":
-            return 1.0 if "rope" in self.bag and self.at == "hall" else 0.0
-        return 0.0
+        return 1.0 if s["item"] in self.bag and self.at == "hall" else 0.0

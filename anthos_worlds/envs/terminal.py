@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
+import random
 from typing import Dict, List
 
 from ..core import Environment, StepResult, Task
+
+_WORDS = ["quarterly", "budget", "roadmap", "onboarding", "handover", "launch"]
+_DIRS = ["reports", "archive", "projects", "drafts", "backup"]
+_NEW_FILES = ["summary.txt", "plan.txt", "todo.txt", "minutes.txt"]
+_ROOT_FILES = ["notes.txt", "tmp.log", "draft.txt", "old.csv", "scratch.md"]
+
+_DEFAULT_FILES = {"/notes.txt": "meeting notes", "/tmp.log": "debug debug"}
 
 
 class TerminalEnv(Environment):
@@ -13,13 +21,43 @@ class TerminalEnv(Environment):
 
     def tasks(self) -> List[Task]:
         return [
-            Task("terminal.report",
-                 "Create a directory /reports and inside it a file summary.txt "
-                 "whose content includes the word 'quarterly'. Then say done."),
-            Task("terminal.cleanup",
-                 "Move /notes.txt into /archive (as /archive/notes.txt) and "
-                 "delete /tmp.log. Then say done."),
+            self._create_task("terminal.report", "/reports", "summary.txt", "quarterly"),
+            self._cleanup_task("terminal.cleanup", "/notes.txt", "/archive", "/tmp.log"),
         ]
+
+    def generate(self, rng: random.Random) -> Task:
+        tid = f"terminal.gen{rng.randrange(10**6)}"
+        if rng.random() < 0.5:
+            return self._create_task(tid, "/" + rng.choice(_DIRS),
+                                     rng.choice(_NEW_FILES), rng.choice(_WORDS))
+        src, delete = rng.sample(_ROOT_FILES, 2)
+        return self._cleanup_task(tid, "/" + src, "/" + rng.choice(_DIRS),
+                                  "/" + delete)
+
+    def solve(self, task: Task) -> List[str]:
+        s = task.spec
+        if s["kind"] == "create":
+            path = s["dir"].rstrip("/") + "/" + s["file"]
+            return [f"mkdir {s['dir']}", f"write {path} {s['word']} update", "done"]
+        return [f"mkdir {s['dst_dir']}", f"mv {s['src']} {s['dst_dir']}",
+                f"rm {s['delete']}", "done"]
+
+    def _create_task(self, tid: str, d: str, f: str, word: str) -> Task:
+        spec = {"kind": "create", "dir": d, "file": f, "word": word,
+                "start_files": dict(_DEFAULT_FILES)}
+        return Task(tid, f"Create a directory {d} and inside it a file {f} "
+                         f"whose content includes the word '{word}'. Then say done.",
+                    spec=spec)
+
+    def _cleanup_task(self, tid: str, src: str, dst_dir: str, delete: str) -> Task:
+        start = dict(_DEFAULT_FILES)
+        start[src] = "important contents"
+        start[delete] = "stale data"
+        base = src.rsplit("/", 1)[1]
+        spec = {"kind": "cleanup", "src": src, "dst_dir": dst_dir,
+                "delete": delete, "start_files": start}
+        return Task(tid, f"Move {src} into {dst_dir} (as {dst_dir}/{base}) and "
+                         f"delete {delete}. Then say done.", spec=spec)
 
     def actions_help(self) -> str:
         return ("ls <dir> | cat <file> | write <file> <text> | mkdir <dir> | "
@@ -27,8 +65,7 @@ class TerminalEnv(Environment):
 
     def reset(self, task: Task) -> str:
         self.task = task
-        self.files: Dict[str, str] = {"/notes.txt": "meeting notes",
-                                      "/tmp.log": "debug debug"}
+        self.files: Dict[str, str] = dict(task.spec["start_files"])
         self.dirs = {"/", "/home"}
         return f"$ you are at /. Directories: {sorted(self.dirs)}. Files: {sorted(self.files)}"
 
@@ -86,11 +123,11 @@ class TerminalEnv(Environment):
         return path if path.startswith("/") else "/" + path
 
     def _score(self) -> float:
-        if self.task.id == "terminal.report":
-            content = self.files.get("/reports/summary.txt", "")
-            return 1.0 if "quarterly" in content.lower() else 0.0
-        if self.task.id == "terminal.cleanup":
-            moved = "/archive/notes.txt" in self.files and "/notes.txt" not in self.files
-            deleted = "/tmp.log" not in self.files
-            return (0.5 * moved) + (0.5 * deleted)
-        return 0.0
+        s = self.task.spec
+        if s["kind"] == "create":
+            content = self.files.get(s["dir"].rstrip("/") + "/" + s["file"], "")
+            return 1.0 if s["word"].lower() in content.lower() else 0.0
+        moved_to = s["dst_dir"].rstrip("/") + "/" + s["src"].rsplit("/", 1)[1]
+        moved = moved_to in self.files and s["src"] not in self.files
+        deleted = s["delete"] not in self.files
+        return (0.5 * moved) + (0.5 * deleted)

@@ -6,15 +6,28 @@ northwest corner.
 
 from __future__ import annotations
 
+import random
 from typing import Dict, List, Tuple
 
 from ..core import Environment, StepResult, Task
 
 _COLS = "ABCDE"
+_CELLS = [f"{c}{r}" for c in _COLS for r in range(1, 6)]
+
+
+def _coords(cell: str) -> Tuple[int, int]:
+    return _COLS.index(cell[0]), int(cell[1]) - 1
 
 
 def _cell(col: int, row: int) -> str:
     return f"{_COLS[col]}{row + 1}"
+
+
+def _walk(a: str, b: str) -> List[str]:
+    (ac, ar), (bc, br) = _coords(a), _coords(b)
+    moves = ["east"] * (bc - ac) if bc >= ac else ["west"] * (ac - bc)
+    moves += ["south"] * (br - ar) if br >= ar else ["north"] * (ar - br)
+    return moves
 
 
 class WarehouseEnv(Environment):
@@ -24,24 +37,45 @@ class WarehouseEnv(Environment):
 
     def tasks(self) -> List[Task]:
         return [
-            Task("warehouse.single",
-                 "Move the crate at A3 to D1.", max_steps=25),
-            Task("warehouse.swap-lane",
-                 "Move the crate at B2 to B5 and the crate at E5 to E1.",
-                 max_steps=40),
+            self._task("warehouse.single", "C3", {"A3": "D1"}, max_steps=25),
+            self._task("warehouse.swap-lane", "C3", {"B2": "B5", "E5": "E1"},
+                       max_steps=40),
         ]
+
+    def generate(self, rng: random.Random) -> Task:
+        robot = rng.choice(_CELLS)
+        k = rng.choice([1, 2])
+        starts = rng.sample(_CELLS, k)
+        goals = rng.sample([c for c in _CELLS if c not in starts], k)
+        crates = dict(zip(starts, goals))
+        return self._task(f"warehouse.gen{rng.randrange(10**6)}", robot, crates,
+                          max_steps=30 * k)
+
+    def solve(self, task: Task) -> List[str]:
+        s = task.spec
+        actions: List[str] = []
+        at = s["robot"]
+        for start in sorted(s["crates"]):
+            goal = s["crates"][start]
+            actions += _walk(at, start) + ["grab"] + _walk(start, goal) + ["drop"]
+            at = goal
+        return actions
+
+    def _task(self, tid: str, robot: str, crates: Dict[str, str],
+              max_steps: int) -> Task:
+        moves = " and ".join(f"the crate at {src} to {dst}"
+                             for src, dst in sorted(crates.items()))
+        return Task(tid, f"Move {moves}.", max_steps=max_steps,
+                    spec={"robot": robot, "crates": dict(crates)})
 
     def actions_help(self) -> str:
         return "north | south | east | west | grab | drop | where"
 
     def reset(self, task: Task) -> str:
         self.task = task
-        self.pos: Tuple[int, int] = (2, 2)  # C3
-        self.holding: bool = False
-        if task.id == "warehouse.single":
-            self.crates: Dict[str, bool] = {"A3": True}
-        else:
-            self.crates = {"B2": True, "E5": True}
+        self.pos = _coords(task.spec["robot"])
+        self.holding = False
+        self.crates = {src: True for src in task.spec["crates"]}
         return (f"Robot at {_cell(*self.pos)}. "
                 f"Crates at: {', '.join(sorted(self.crates))}.")
 
@@ -83,7 +117,6 @@ class WarehouseEnv(Environment):
         return StepResult(f"unknown command: {action!r}. Commands: {self.actions_help()}")
 
     def _score(self) -> float:
-        goals = {"warehouse.single": {"D1"}, "warehouse.swap-lane": {"B5", "E1"}}
-        want = goals.get(self.task.id, set())
-        placed = sum(1 for cell in want if self.crates.get(cell))
-        return placed / len(want) if want else 0.0
+        goals = set(self.task.spec["crates"].values())
+        placed = sum(1 for cell in goals if self.crates.get(cell))
+        return placed / len(goals) if goals else 0.0

@@ -20,7 +20,7 @@ By [Anthos Intelligence](https://github.com/TushaeBXN/anthos). Everything is tex
 | `warehouse` | drive a grid robot moving crates to target cells |
 | `helpdesk` | read support tickets and route each to the correct team |
 
-Every world ships deterministic tasks with programmatic rewards in [0, 1] — no LLM judge, no flaky scoring.
+Every world ships deterministic tasks with programmatic rewards in [0, 1] — no LLM judge, no flaky scoring. And every world has a **seeded task generator**, so models can't memorize the shipped tasks: `--variants 20 --seed 3` gives you 140 fresh tasks that are reproducible by anyone with the same seed, and the built-in oracle solves all of them programmatically (CI proves it).
 
 ## Quickstart
 
@@ -30,8 +30,8 @@ pip install -e .
 # sanity floor: a random agent
 python -m anthos_worlds.cli --agent random
 
-# ceiling: the built-in oracle solves all 14 tasks
-python -m anthos_worlds.cli --agent oracle
+# ceiling: the built-in oracle solves every task, canonical or generated
+python -m anthos_worlds.cli --agent oracle --variants 20 --seed 3
 
 # score a frontier model (needs ANTHROPIC_API_KEY, pip install anthropic)
 python -m anthos_worlds.cli --agent anthropic --model claude-sonnet-5
@@ -76,8 +76,8 @@ Writing your own world is ~80 lines: subclass `Environment`, implement `tasks()`
 Episodes convert directly into chat-format SFT data — the same loop that evaluates your model generates its next training set:
 
 ```bash
-# 14 perfect demonstrations, zero model tokens spent
-python -m anthos_worlds.cli --agent oracle --sft data/oracle_sft.jsonl
+# unlimited perfect demonstrations, zero model tokens spent
+python -m anthos_worlds.cli --agent oracle --variants 100 --seed 1 --sft data/oracle_sft.jsonl
 ```
 
 ```python
@@ -88,7 +88,7 @@ Each line is `{"messages": [{role, content}, ...]}` — feed it straight to a TR
 
 ## Roadmap
 
-- [ ] Procedurally generated task variants (seeded) so models can't memorize the 14 shipped tasks
+- [x] Procedurally generated task variants (seeded) so models can't memorize the shipped tasks — since v0.2.0
 - [ ] Multi-episode held-out split and a public leaderboard
 - [ ] Cross-world tasks (read an email, then act in the terminal)
 - [ ] RL-style dense rewards as an opt-in

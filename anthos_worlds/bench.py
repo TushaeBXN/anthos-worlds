@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence
 
@@ -74,11 +75,19 @@ class BenchReport:
 
 
 def run_bench(agent: Agent, envs: Optional[Sequence[str]] = None,
-              traces_path: Optional[str] = None) -> BenchReport:
+              traces_path: Optional[str] = None, variants: int = 0,
+              seed: int = 0) -> BenchReport:
+    """Run the bench. ``variants`` adds that many procedurally generated tasks
+    per world, seeded per-world so results are reproducible regardless of
+    which subset of worlds you run."""
     report = BenchReport(agent=agent.name)
     for name in envs or env_names():
         env = make(name)
-        for task in env.tasks():
+        tasks = list(env.tasks())
+        if variants:
+            rng = random.Random(f"{seed}:{name}")
+            tasks += [env.generate(rng) for _ in range(variants)]
+        for task in tasks:
             report.episodes.append(run_episode(env, task, agent))
     if traces_path:
         save_traces(report.episodes, traces_path)

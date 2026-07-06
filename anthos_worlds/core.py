@@ -8,9 +8,10 @@ special tooling.
 
 from __future__ import annotations
 
+import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List
+from typing import Any, Dict, List
 
 
 @dataclass
@@ -18,6 +19,7 @@ class Task:
     id: str
     instruction: str
     max_steps: int = 20
+    spec: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -52,7 +54,17 @@ class Environment(ABC):
 
     @abstractmethod
     def tasks(self) -> List[Task]:
-        """The scripted, deterministic tasks this environment ships with."""
+        """The canonical, deterministic tasks this environment ships with."""
+
+    @abstractmethod
+    def generate(self, rng: random.Random) -> Task:
+        """Sample a procedurally generated task variant. Deterministic for a
+        given rng state, and always solvable."""
+
+    @abstractmethod
+    def solve(self, task: Task) -> List[str]:
+        """Return an action sequence that completes ``task`` with reward 1.0.
+        Powers the oracle agent and CI solvability checks."""
 
     @abstractmethod
     def actions_help(self) -> str:

@@ -21,6 +21,10 @@ def main() -> None:
                         help="OpenAI-compatible server URL (vLLM/Ollama)")
     parser.add_argument("--envs", nargs="*", default=None,
                         help=f"subset of worlds; default all: {env_names()}")
+    parser.add_argument("--variants", type=int, default=0,
+                        help="procedurally generated task variants per world")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="seed for generated variants (reproducible)")
     parser.add_argument("--traces", default=None,
                         help="write raw episode traces to this JSONL path")
     parser.add_argument("--sft", default=None,
@@ -41,7 +45,8 @@ def main() -> None:
         agent = LLMAgent(openai_compat_backend(args.model, args.base_url),
                          name=args.model)
 
-    report = run_bench(agent, envs=args.envs, traces_path=args.traces)
+    report = run_bench(agent, envs=args.envs, traces_path=args.traces,
+                       variants=args.variants, seed=args.seed)
     print(report.table())
     if args.sft:
         n = export_sft(report.episodes, args.sft)

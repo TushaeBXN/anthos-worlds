@@ -1,9 +1,10 @@
 import json
+import random
 
 import pytest
 
 import anthos_worlds as aw
-from anthos_worlds.oracle import ORACLE_SCRIPTS, oracle_agent
+from anthos_worlds.oracle import oracle_agent
 
 
 def test_seven_worlds_registered():
@@ -12,17 +13,51 @@ def test_seven_worlds_registered():
                                    "quest", "warehouse", "helpdesk"}
 
 
-def test_every_task_has_an_oracle_script():
-    all_tasks = {t.id for name in aw.env_names() for t in aw.make(name).tasks()}
-    assert all_tasks == set(ORACLE_SCRIPTS)
-
-
-def test_oracle_solves_every_task():
+def test_oracle_solves_every_canonical_task():
     report = aw.run_bench(oracle_agent())
-    assert len(report.episodes) == 14  # 7 worlds x 2 tasks
+    assert len(report.episodes) == 14  # 7 worlds x 2 canonical tasks
     failures = [(e.env, e.task.id, e.reward) for e in report.episodes if not e.success]
     assert not failures, f"oracle failed: {failures}"
     assert report.overall_reward == 1.0
+
+
+def test_oracle_solves_generated_variants_across_seeds():
+    # torture test: 7 worlds x 10 variants x 3 seeds = 210 generated tasks
+    for seed in (1, 2, 3):
+        report = aw.run_bench(oracle_agent(), variants=10, seed=seed)
+        assert len(report.episodes) == 7 * (2 + 10)
+        failures = [(e.env, e.task.id, e.task.instruction, e.reward)
+                    for e in report.episodes if not e.success]
+        assert not failures, f"seed {seed}: oracle failed {failures[:3]}"
+
+
+def test_variants_are_deterministic_per_seed():
+    def signature(seed):
+        return [(e.task.id, e.task.instruction)
+                for e in aw.run_bench(oracle_agent(), variants=5, seed=seed).episodes]
+    assert signature(42) == signature(42)
+    assert signature(42) != signature(43)
+
+
+def test_variants_reproducible_across_env_subsets():
+    full = aw.run_bench(oracle_agent(), variants=3, seed=7)
+    quest_only = aw.run_bench(oracle_agent(), envs=["quest"], variants=3, seed=7)
+    full_quest = [e.task.instruction for e in full.episodes if e.env == "quest"]
+    sub_quest = [e.task.instruction for e in quest_only.episodes]
+    assert full_quest == sub_quest
+
+
+def test_generated_tasks_are_valid_task_objects():
+    for name in aw.env_names():
+        env = aw.make(name)
+        rng = random.Random(0)
+        for _ in range(5):
+            task = env.generate(rng)
+            assert task.id.startswith(f"{name}.gen")
+            assert task.instruction and task.max_steps > 0
+            plan = env.solve(task)
+            assert plan and len(plan) <= task.max_steps, \
+                f"{name}: solver plan ({len(plan)} steps) exceeds max_steps"
 
 
 def test_random_agent_runs_and_scores_low():
