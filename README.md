@@ -1,5 +1,9 @@
 # AnthosWorlds
 
+[![tests](https://github.com/TushaeBXN/anthos-worlds/actions/workflows/test.yml/badge.svg)](https://github.com/TushaeBXN/anthos-worlds/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/anthos-worlds)](https://pypi.org/project/anthos-worlds/)
+[![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
 **Seven text-simulated agent environments in one framework — plus a bench that scores any LLM on all of them, and a trace exporter that turns bench runs into fine-tuning data.**
 
 By [Anthos Intelligence](https://github.com/TushaeBXN/anthos). Everything is text in, text out: an environment hands the agent an observation, the agent replies with one plain-text command. No tool schemas, no browser drivers, no Docker — any chat model can play, from a frontier API to your own fine-tune served on a cloud GPU.
