@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "anthos-worlds"
+version = "0.1.0"
+description = "Seven text-simulated agent environments, a bench for any LLM, and SFT trace export."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Brian Tushae Thomas" }]
+requires-python = ">=3.9"
+dependencies = []
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.40"]
+openai = ["openai>=1.40"]
+local = ["torch", "transformers"]
+
+[project.urls]
+Homepage = "https://github.com/TushaeBXN/anthos-worlds"
+
+[project.scripts]
+anthos-worlds = "anthos_worlds.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["anthos_worlds*"]
